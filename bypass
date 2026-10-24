@@ -1,0 +1,118 @@
+// ==UserScript==
+// @name         Link4M Bypass (VNBP) - Titanium Edition
+// @namespace    https://link4m.net/
+// @version      5.0.0-Pro
+// @description  bypass link4m siêu tốc, bẻ timer, chặn popup, hook API
+// @match        https://link4m.net/*
+// @match        https://link4m.com/*
+// @match        https://*.link4m.net/*
+// @match        https://*.link4m.com/*
+// @match        https://link4m.org/*
+// @run-at       document-start
+// @icon         https://raw.githubusercontent.com/longndev/VNBP/refs/heads/main/Link4M/assets/link4m.png
+// @author       VNBP (@inoolonely) - Titanium by P
+// @updateURL    https://github.com/longndev/VNBP/raw/refs/heads/main/Link4M/link4m.user.js
+// @downloadURL  https://github.com/longndev/VNBP/raw/refs/heads/main/Link4M/link4m.user.js
+// @require      https://raw.githubusercontent.com/longndev/VNBP/refs/heads/main/Link4M/link4m.js
+// @connect      *
+// @grant        GM_xmlhttpRequest
+// @grant        GM.xmlHttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        unsafeWindow
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // 1. ÉP STAY IOS HIỂU LỆNH GM_ CŨ
+    const w = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    if (typeof GM !== 'undefined') {
+        if (typeof w.GM_xmlhttpRequest === 'undefined' && GM.xmlHttpRequest) w.GM_xmlhttpRequest = GM.xmlHttpRequest;
+        if (typeof w.GM_setValue === 'undefined' && GM.setValue) w.GM_setValue = GM.setValue;
+        if (typeof w.GM_getValue === 'undefined' && GM.getValue) w.GM_getValue = GM.getValue;
+    }
+
+    // 2. BẺ GÃY TIMER ĐẾM NGƯỢC (Bypass Countdown)
+    const originalSetTimeout = w.setTimeout;
+    const originalSetInterval = w.setInterval;
+    
+    w.setTimeout = function(fn, delay, ...args) {
+        // Nếu timer dài hơn 1 giây (thường là countdown 10s-15s), rút ngắn còn 50ms
+        if (delay > 1000) return originalSetTimeout(fn, 50, ...args);
+        return originalSetTimeout(fn, delay, ...args);
+    };
+    
+    w.setInterval = function(fn, delay, ...args) {
+        if (delay > 1000) return originalSetInterval(fn, 50, ...args);
+        return originalSetInterval(fn, delay, ...args);
+    };
+
+    // 3. CHẶN POPUP & QUẢNG CÁO (Chặn mở tab mới)
+    w.open = function() { return { focus: function(){}, close: function(){} }; };
+
+    // 4. HOOK FETCH API (Chặn request kiểm tra captcha/timer gửi lên server)
+    const originalFetch = w.fetch;
+    w.fetch = async function(...args) {
+        const url = args[0] instanceof Request ? args[0].url : args[0];
+        // Nếu là request xác thực (verify/check), giả lập trả về thành công luôn
+        if (typeof url === 'string' && (url.includes('verify') || url.includes('check') || url.includes('captcha'))) {
+            console.log('[Titanium] Intercepted API:', url);
+            return new Response(JSON.stringify({ status: 'success', success: true, code: 200 }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+        return originalFetch.apply(this, args);
+    };
+
+    // 5. HOOK XHR API (Dành cho các trang dùng XMLHttpRequest thay vì fetch)
+    const XHR = w.XMLHttpRequest.prototype;
+    const originalOpen = XHR.open;
+    const originalSend = XHR.send;
+
+    XHR.open = function(method, url) {
+        this._url = url;
+        return originalOpen.apply(this, arguments);
+    };
+
+    XHR.send = function(body) {
+        if (this._url && (this._url.includes('verify') || this._url.includes('check'))) {
+            console.log('[Titanium] Intercepted XHR:', this._url);
+            const self = this;
+            originalSetTimeout(() => {
+                Object.defineProperty(self, 'readyState', { value: 4 });
+                Object.defineProperty(self, 'status', { value: 200 });
+                Object.defineProperty(self, 'responseText', { value: JSON.stringify({ status: 'success', success: true }) });
+                if (self.onreadystatechange) self.onreadystatechange();
+                if (self.onload) self.onload();
+            }, 50);
+            return;
+        }
+        return originalSend.apply(this, arguments);
+    };
+
+    // 6. GỠ BỎ CHẶN CHUỘT PHẢI & PHÍM TẮT (DevTools)
+    w.document.addEventListener('contextmenu', e => e.stopPropagation(), true);
+    w.document.addEventListener('keydown', e => {
+        if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) e.stopPropagation();
+    }, true);
+
+    // 7. XÓA OVERLAY CHẶN CLICK (Chạy sau khi DOM load)
+    w.document.addEventListener('DOMContentLoaded', () => {
+        const removeOverlays = () => {
+            const selectors = ['.modal-backdrop', '.overlay', '#adblock-modal', '.swal2-container', '.popup-overlay'];
+            selectors.forEach(sel => {
+                w.document.querySelectorAll(sel).forEach(el => el.remove());
+            });
+            // Mở khóa scroll nếu bị khóa
+            w.document.body.style.overflow = 'auto';
+        };
+        removeOverlays();
+        originalSetInterval(removeOverlays, 1000); // Quét liên tục mỗi giây
+    });
+
+    // ==========================================
+    // Lõi link4m.js của VNBP tự động chạy tại đây
+    // ==========================================
+})();
